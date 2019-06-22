@@ -58,7 +58,7 @@ class HeartConfig(Config):
     BACKBONE_CHANNELS = [16, 32]
 
     # Size of the fully-connected layers in the classification graph
-    FPN_CLASSIFY_FC_LAYERS_SIZE = 512 # 128  # 1024 -- Andres!!
+    FPN_CLASSIFY_FC_LAYERS_SIZE = 128  # 1024
 
     # Channels in U-net of the mrcnn mask branch
     UNET_MASK_BRANCH_CHANNEL = 20
@@ -85,7 +85,7 @@ class HeartConfig(Config):
     RPN_ANCHOR_RATIOS = [1]
 
     # How many anchors per image to use for RPN training
-    RPN_TRAIN_ANCHORS_PER_IMAGE = 256  # 128  # -- Andres
+    RPN_TRAIN_ANCHORS_PER_IMAGE = 128  # 256
 
     # ROIs kept before non-maximum suppression
     PRE_NMS_LIMIT = 1000  # 6000
@@ -144,9 +144,9 @@ class HeartConfig(Config):
     POOL_SIZE = [12, 12, 12] # [7, 7, 7]
     MASK_POOL_SIZE = [96, 96, 96] 
 
-    # Minimum probability value to accept a detected instanc
+    # Minimum probability value to accept a detected instance
     # ROIs below this threshold are skipped
-    DETECTION_MIN_CONFIDENCE = 0.7 
+    DETECTION_MIN_CONFIDENCE = 0.7
 
     # Non-maximum suppression threshold for detection
     DETECTION_NMS_THRESHOLD = 0.3
@@ -277,7 +277,7 @@ def train(model):
     print("Train all layers")
     model.train_model(dataset_train, dataset_val,
                       learning_rate=config.LEARNING_RATE,
-                      epochs=80)
+                      epochs=1000)
 
 
 ############################################################
@@ -291,8 +291,8 @@ def test(model, limit, save, bbox):
     save: whether to save the masks.
     limit: whether to draw the bboxes.
     """
-    per_class_ious = []
-    info = json.load(open(args.data + "dataset.json"))
+    
+    info = json.load(open(args.data + "test_dataset.json"))
     info = list(info['train_and_test'])
 
     print('This is info in test') # -- Andres!
@@ -301,11 +301,10 @@ def test(model, limit, save, bbox):
     detect_time = 0
     for path in info[:limit]:
         path_image = path['image']
-        path_label = path['label']
+  
         image = nib.load(path_image).get_data().copy()
-        label = nib.load(path_label)  # load the gt-masks
-        affine = label.affine  # prepared to save the predicted mask later
-        label = label.get_data().copy()
+        image_affine = nib.load(path_image)  # load the image again for affine        
+        affine = image_affine.affine                
         image = np.expand_dims(image, -1)
         start_time = time.time()
         result = model.detect([image])[0]
@@ -322,18 +321,8 @@ def test(model, limit, save, bbox):
         class_ids = result["class_ids"]
         scores = result["scores"]
         mask = result["mask"]
-        # Prepare the gt-masks and pred-masks to calculate the ious.
-        gt_masks = np.zeros((image.shape[0], image.shape[1], image.shape[2], model.config.NUM_CLASSES - 1))
-        pred_masks = np.zeros((image.shape[0], image.shape[1], image.shape[2], model.config.NUM_CLASSES - 1))
-        # Generate the per instance gt masks.
-        for j in range(model.config.NUM_CLASSES - 1):
-            gt_masks[:, :, :, j][label == j + 1] = 1
-        # Generate the per instance predicted masks.
-        for j in range(model.config.NUM_CLASSES - 1):
-            pred_masks[:, :, :, j][mask == j + 1] = 1
-        # calculate different kind of ious
-        per_class_iou = utils.compute_per_class_mask_iou(gt_masks, pred_masks)
-        per_class_ious.append(per_class_iou)
+        
+        
         # Save the results
         if save == "true":
             # Draw bboxes
@@ -354,14 +343,9 @@ def test(model, limit, save, bbox):
             vol = nib.Nifti1Image(mask.astype(np.int32), affine)
             if not os.path.exists("./results"):
                 os.makedirs("./results")
-            nib.save(vol, "./results/" + str(per_class_iou.mean()) + "_" + path_image[-17:])
-        print(path_image[-17:] + " detected done. iou = " + str(per_class_iou))
+            nib.save(vol, "./results/" + path_image[-17:])
+        print(path_image[-17:])
     print("Test completed.")
-    # Print the iou results.
-    per_class_ious = np.array(per_class_ious)
-    print("per class iou mean:", np.mean(per_class_ious, axis=0))
-    print("std:", np.std(per_class_ious, axis=0))
-    print("Total ious mean:", per_class_ious.mean())
     print("Total detect time:", detect_time)
 
 
